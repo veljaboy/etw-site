@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Nova tabela za Radnike
+model Radnik {
+  id        String    @id @default(cuid())
+  ime       String
+  boja      String    // Npr. '#3b82f6' za plavu
+  zadaci    Anfrage[] // Veza: Jedan radnik može imati više poslova
+}
+
+// Stara tabela, proširena za radnika
+model Anfrage {
+  id           String   @id @default(cuid())
+  vorname      String
+  nachname     String
+  telefon      String
+  email        String
+  adresse      String
+  wunschtermin String?  
+  beschreibung String
+  status       String   @default("NEU") 
+  createdAt    DateTime @default(now())
+  
+  // Veza sa radnikom (Upitnik '?' znači da na početku posao nije dodeljen nikome)
+  radnikId     String?
+  radnik       Radnik?  @relation(fields: [radnikId], references: [id])
+}
