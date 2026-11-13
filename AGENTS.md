@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Project Memory & Continuity (`PLAN.md`)
+Always read `PLAN.md` in the project root at the start of a conversation to understand what has been built so far, what the client (ETW Elektrische Anlagen OG) requested, and what the next step is. Whenever you complete a task or milestone, update `PLAN.md` accordingly.
+

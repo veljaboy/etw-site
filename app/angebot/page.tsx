@@ -1,113 +1,175 @@
 "use client";
 
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function AngebotPage() {
-  // 1. Definišemo stanje gde čuvamo sve podatke iz forme
   const [formData, setFormData] = useState({
-    vorname: '',
-    nachname: '',
-    telefon: '',
-    email: '',
+    name: '',
     adresse: '',
-    wunschtermin: '',
-    beschreibung: ''
+    kontakt: '',
+    anliegen: '',
   });
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
-  // 2. Funkcija koja ažurira stanje svaki put kad korisnik ukuca neko slovo
-  const handleChange = (e: any) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // 3. Funkcija koja se okida kada se klikne "Anfrage senden"
-  const handleSubmit = async (e: any) => {
-    e.preventDefault(); 
-    
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus('sending');
+
     try {
-      // Šaljemo podatke na naš novi API
-      const response = await fetch('/api/anfrage', {
+      const response = await fetch('/api/kontakt-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
       });
 
       if (response.ok) {
-        alert("Uspešno! Vaš upit je poslat u bazu.");
-        
-        // Praznimo formu nakon uspešnog slanja
+        setStatus('sent');
         setFormData({
-          vorname: '',
-          nachname: '',
-          telefon: '',
-          email: '',
+          name: '',
           adresse: '',
-          wunschtermin: '',
-          beschreibung: ''
+          kontakt: '',
+          anliegen: '',
         });
       } else {
-        alert("Greška pri slanju. Pokušajte ponovo.");
+        setStatus('error');
       }
     } catch (error) {
-      console.error("Greška:", error);
+      console.error('Greška:', error);
+      setStatus('error');
     }
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-2xl">
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-          <h1 className="text-3xl font-bold text-[#1a202c] mb-2">Projektanfrage</h1>
-          <p className="text-gray-600 mb-8">Hinterlassen Sie uns Ihre Daten und wir melden uns zeitnah bei Ihnen.</p>
+    <main className="min-h-screen bg-gray-50">
+      {/* Jednostavno zaglavlje sa novim logom */}
+      <header className="bg-white border-b border-gray-100">
+        <div className="container mx-auto px-4 md:px-8 py-4 flex justify-between items-center">
+          <Link href="/" className="flex items-center">
+            <Image
+              src="/etw-logo-cropped.png"
+              alt="ETW Elektrische Anlagen"
+              width={100}
+              height={78}
+              className="h-12 w-auto object-contain"
+            />
+          </Link>
+          <Link href="/" className="text-sm font-semibold text-gray-600 hover:text-[#e60000] transition">
+            ← Zurück zur Startseite
+          </Link>
+        </div>
+      </header>
 
-          {/* Dodali smo onSubmit na formu */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Vorname (Ime)</label>
-                {/* Dodali smo name, value i onChange na svaki input */}
-                <input type="text" name="vorname" value={formData.vorname} onChange={handleChange} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" placeholder="Max" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nachname (Prezime)</label>
-                <input type="text" name="nachname" value={formData.nachname} onChange={handleChange} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" placeholder="Mustermann" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Telefon</label>
-                <input type="tel" name="telefon" value={formData.telefon} onChange={handleChange} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" placeholder="+43 664..." />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
-                <input type="email" name="email" value={formData.email} onChange={handleChange} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" placeholder="max@beispiel.at" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Adresse (Adresa radova)</label>
-              <input type="text" name="adresse" value={formData.adresse} onChange={handleChange} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" placeholder="Musterstraße 1, 1010 Wien" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Wunschtermin (Željeni datum - opciono)</label>
-              <input type="date" name="wunschtermin" value={formData.wunschtermin} onChange={handleChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Beschreibung (Opis problema/projekta)</label>
-              <textarea name="beschreibung" value={formData.beschreibung} onChange={handleChange} rows={4} required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none" placeholder="Wie können wir Ihnen helfen?"></textarea>
-            </div>
-
-            <button type="submit" className="w-full bg-[#e60000] text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition">
-              Anfrage senden (Pošalji upit)
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-             <Link href="/" className="text-sm text-gray-500 hover:text-[#e60000]">← Zurück zur Startseite (Nazad)</Link>
+      <div className="container mx-auto px-4 py-12 max-w-xl">
+        <div className="bg-white p-8 md:p-10 rounded-2xl shadow-sm border border-gray-100">
+          <div className="w-12 h-12 rounded-xl bg-[#e60000] text-white flex items-center justify-center mb-5 shadow-sm">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              />
+            </svg>
           </div>
+
+          <h1 className="text-3xl font-extrabold text-[#1a202c] mb-2">Anfrage senden</h1>
+          <p className="text-gray-600 mb-8">
+            Senden Sie uns Ihr Anliegen direkt per E-Mail. Wir melden uns verlässlich bei Ihnen.
+          </p>
+
+          {status === 'sent' ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-green-600 text-white flex items-center justify-center mx-auto mb-3 text-xl font-bold">
+                ✓
+              </div>
+              <h3 className="font-bold text-lg text-green-900 mb-1">Vielen Dank für Ihre Nachricht!</h3>
+              <p className="text-green-700 text-sm mb-5">
+                Ihre Anfrage wurde erfolgreich per E-Mail an uns übermittelt.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStatus('idle')}
+                className="bg-[#e60000] text-white font-semibold px-6 py-2.5 rounded-lg hover:bg-red-700 transition cursor-pointer"
+              >
+                Weitere Anfrage senden
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">Name *</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none"
+                  placeholder="Vor- und Nachname oder Firma"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">Adresse *</label>
+                <input
+                  type="text"
+                  name="adresse"
+                  value={formData.adresse}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none"
+                  placeholder="Straße, Hausnummer, PLZ Wien"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+                  Telefon oder E-Mail (für Rückfragen) *
+                </label>
+                <input
+                  type="text"
+                  name="kontakt"
+                  value={formData.kontakt}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none"
+                  placeholder="+43 664 ... oder name@beispiel.at"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">Anliegen *</label>
+                <textarea
+                  name="anliegen"
+                  value={formData.anliegen}
+                  onChange={handleChange}
+                  rows={4}
+                  required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#e60000] focus:border-[#e60000] outline-none"
+                  placeholder="Beschreiben Sie kurz Ihr Anliegen..."
+                />
+              </div>
+
+              {status === 'error' && (
+                <p className="text-sm text-red-600 font-medium">
+                  Fehler beim Senden. Bitte versuchen Sie es erneut.
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={status === 'sending'}
+                className="w-full bg-[#e60000] text-white font-bold py-3.5 px-6 rounded-xl hover:bg-red-700 transition shadow-sm cursor-pointer disabled:opacity-60"
+              >
+                {status === 'sending' ? 'Wird gesendet...' : 'Absenden'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </main>

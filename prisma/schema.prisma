@@ -7,7 +7,7 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// Nova tabela za Radnike
+// Tabela za Radnike
 model Radnik {
   id        String    @id @default(cuid())
   ime       String
@@ -15,20 +15,25 @@ model Radnik {
   zadaci    Anfrage[] // Veza: Jedan radnik može imati više poslova
 }
 
-// Stara tabela, proširena za radnika
+// Tabela za Poslove u kalendaru (koje šef sam unosi i raspoređuje)
 model Anfrage {
   id           String   @id @default(cuid())
   vorname      String
-  nachname     String
-  telefon      String
-  email        String
+  nachname     String   @default("")
+  telefon      String   @default("")
+  email        String   @default("")
   adresse      String
-  wunschtermin String?  
+  wunschtermin String?  // Datum posla, npr. "2026-11-13"
+  vremeOd      String?  // Početak u satima, npr. "08:00"
+  vremeDo      String?  // Kraj u satima, npr. "11:00"
   beschreibung String
-  status       String   @default("NEU") 
+  status       String   @default("NEU")
+  slikaPre     String?  // Base64 / Data URL fotografije PRE radova (Vorher)
+  slikaPosle   String?  // Base64 / Data URL fotografije POSLE radova (Nachher)
+  izvestajRadnika String? // Opis izvršenih radova sa terena (Durchgeführte Arbeiten)
   createdAt    DateTime @default(now())
-  
-  // Veza sa radnikom (Upitnik '?' znači da na početku posao nije dodeljen nikome)
+
+  // Veza sa radnikom
   radnikId     String?
   radnik       Radnik?  @relation(fields: [radnikId], references: [id])
 }

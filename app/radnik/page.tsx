@@ -3,6 +3,8 @@ import RadnikAplikacija from '../components/RadnikAplikacija';
 
 const prisma = new PrismaClient();
 
+export const dynamic = 'force-dynamic';
+
 export default async function RadnikPage() {
   // Server povlači radnike iz baze
   const radnici = await prisma.radnik.findMany();
@@ -19,7 +21,7 @@ export default async function RadnikPage() {
 
   return (
     // bg-gray-50 je blaga siva pozadina koja čini da bele kartice izgledaju kao prava aplikacija
-    <main className="min-h-screen bg-gray-100 pb-12">
+    <main className="min-h-screen bg-gray-100 pb-12 print:bg-white print:pb-0">
       <RadnikAplikacija radnici={radnici} poslovi={dodeljeniPoslovi} />
     </main>
   );
