@@ -12,7 +12,7 @@ export default async function ChefPanel() {
   const radnici = await prisma.radnik.findMany();
 
   return (
-    <main className="min-h-screen bg-gray-50 pb-16">
+    <main className="min-h-screen bg-gray-50 pb-16 print:bg-white print:pb-0">
       <ChefCalendar anfragen={anfragen} radnici={radnici} />
     </main>
   );

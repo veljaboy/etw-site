@@ -59,6 +59,9 @@ export async function POST(request: Request) {
     if (data.izvestajRadnika !== undefined) {
       updateData.izvestajRadnika = data.izvestajRadnika;
     }
+    if (data.auftragsscheinData !== undefined) {
+      updateData.auftragsscheinData = data.auftragsscheinData;
+    }
 
     const updatedAnfrage = await prisma.anfrage.update({
       where: { id: data.id },

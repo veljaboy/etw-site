@@ -54,28 +54,45 @@ export default function AuftragsscheinModal({
   const danas = new Date().toLocaleDateString('de-AT');
   const punoImeKlijenta = `${posao.vorname || ''} ${posao.nachname || ''}`.trim();
 
-  const [datum, setDatum] = useState(danas);
-  const [vereinbarterTermin, setVereinbarterTermin] = useState(
-    posao.vremeOd && posao.vremeDo
-      ? `${posao.wunschtermin || ''} (${posao.vremeOd} - ${posao.vremeDo})`
-      : posao.wunschtermin || ''
+  // Učitavamo prethodno sačuvane podatke iz auftragsscheinData ako postoje
+  const savedData = (() => {
+    if (!posao.auftragsscheinData) return null;
+    try {
+      return JSON.parse(posao.auftragsscheinData);
+    } catch {
+      return null;
+    }
+  })();
+
+  const [datum, setDatum] = useState<string>(savedData?.datum || danas);
+  const [vereinbarterTermin, setVereinbarterTermin] = useState<string>(
+    savedData?.vereinbarterTermin ||
+      (posao.vremeOd && posao.vremeDo
+        ? `${posao.wunschtermin || ''} (${posao.vremeOd} - ${posao.vremeDo})`
+        : posao.wunschtermin || '')
   );
-  const [monteur, setMonteur] = useState(radnikIme || '');
-  const [mit, setMit] = useState('');
-  const [kunde, setKunde] = useState(punoImeKlijenta);
-  const [adresse, setAdresse] = useState(posao.adresse || '');
-  const [durchzufuehrendeArbeit, setDurchzufuehrendeArbeit] = useState(posao.beschreibung || '');
+  const [monteur, setMonteur] = useState<string>(savedData?.monteur || radnikIme || '');
+  const [mit, setMit] = useState<string>(savedData?.mit || '');
+  const [kunde, setKunde] = useState<string>(savedData?.kunde || punoImeKlijenta);
+  const [adresse, setAdresse] = useState<string>(savedData?.adresse || posao.adresse || '');
+  const [durchzufuehrendeArbeit, setDurchzufuehrendeArbeit] = useState<string>(
+    savedData?.durchzufuehrendeArbeit || posao.beschreibung || ''
+  );
 
   const [materialRows, setMaterialRows] = useState<MaterialRow[]>(
-    Array.from({ length: 8 }, () => ({ menge: '', einheit: '', bezeichnung: '', kfz: '' }))
+    savedData?.materialRows && Array.isArray(savedData.materialRows) && savedData.materialRows.length === 8
+      ? savedData.materialRows
+      : Array.from({ length: 8 }, () => ({ menge: '', einheit: '', bezeichnung: '', kfz: '' }))
   );
 
-  const [zeitVon, setZeitVon] = useState(posao.vremeOd || '');
-  const [zeitBis, setZeitBis] = useState(posao.vremeDo || '');
-  const [zeitGesamt, setZeitGesamt] = useState('');
-  const [durchgefuehrteArbeiten, setDurchgefuehrteArbeiten] = useState(posao.izvestajRadnika || '');
+  const [zeitVon, setZeitVon] = useState<string>(savedData?.zeitVon || posao.vremeOd || '');
+  const [zeitBis, setZeitBis] = useState<string>(savedData?.zeitBis || posao.vremeDo || '');
+  const [zeitGesamt, setZeitGesamt] = useState<string>(savedData?.zeitGesamt || '');
+  const [durchgefuehrteArbeiten, setDurchgefuehrteArbeiten] = useState<string>(
+    savedData?.durchgefuehrteArbeiten ?? posao.izvestajRadnika ?? ''
+  );
   const [abgeschlossen, setAbgeschlossen] = useState<'ja' | 'nein' | null>(
-    posao.status === 'ZAVRŠENO' ? 'ja' : null
+    savedData?.abgeschlossen ?? (posao.status === 'ZAVRŠENO' ? 'ja' : null)
   );
 
   // Slike PRE i POSLE (Vorher / Nachher)
@@ -84,7 +101,7 @@ export default function AuftragsscheinModal({
   const [savingToServer, setSavingToServer] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  // Ugrađena kamera uživo (radi i na laptopu i na telefonu direktno u pretraživaču!)
+  // Ugrađena kamera uživo
   const [activeCameraTarget, setActiveCameraTarget] = useState<'pre' | 'posle' | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -92,6 +109,7 @@ export default function AuftragsscheinModal({
   // Canvas za digitalni potpis klijenta
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState<boolean>(Boolean(savedData?.potpisKunde));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -101,9 +119,18 @@ export default function AuftragsscheinModal({
     ctx.strokeStyle = '#111827';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
+
+    // Ako postoji sačuvan potpis iz baze, iscrtavamo ga na canvas
+    if (savedData?.potpisKunde) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+      img.src = savedData.potpisKunde;
+    }
   }, []);
 
-  // Čišćenje kamere pri zatvaranju
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -171,24 +198,57 @@ export default function AuftragsscheinModal({
     }
   };
 
+  const getSignatureDataUrl = (): string | null => {
+    if (!hasSignature || !canvasRef.current) return null;
+    try {
+      return canvasRef.current.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  };
+
   const saveFieldsToDatabase = async (overrides?: {
     slikaPre?: string | null;
     slikaPosle?: string | null;
     izvestajRadnika?: string;
     status?: string;
+    abgeschlossenOverride?: 'ja' | 'nein' | null;
   }) => {
     setSavingToServer(true);
     setSaveMessage(null);
     try {
+      const finalAbgeschlossen =
+        overrides?.abgeschlossenOverride !== undefined ? overrides.abgeschlossenOverride : abgeschlossen;
+
+      const fullFormJson = JSON.stringify({
+        datum,
+        vereinbarterTermin,
+        monteur,
+        mit,
+        kunde,
+        adresse,
+        durchzufuehrendeArbeit,
+        materialRows,
+        zeitVon,
+        zeitBis,
+        zeitGesamt,
+        durchgefuehrteArbeiten:
+          overrides?.izvestajRadnika !== undefined ? overrides.izvestajRadnika : durchgefuehrteArbeiten,
+        abgeschlossen: finalAbgeschlossen,
+        potpisKunde: getSignatureDataUrl(),
+        updatedAt: new Date().toISOString(),
+      });
+
       const payload = {
         id: posao.id,
         slikaPre: overrides?.slikaPre !== undefined ? overrides.slikaPre : slikaPre,
         slikaPosle: overrides?.slikaPosle !== undefined ? overrides.slikaPosle : slikaPosle,
         izvestajRadnika:
           overrides?.izvestajRadnika !== undefined ? overrides.izvestajRadnika : durchgefuehrteArbeiten,
+        auftragsscheinData: fullFormJson,
         status:
           overrides?.status ||
-          (abgeschlossen === 'ja' ? 'ZAVRŠENO' : posao.radnikId ? 'DODELJENO' : 'NEU'),
+          (finalAbgeschlossen === 'ja' ? 'ZAVRŠENO' : posao.radnikId ? 'DODELJENO' : 'NEU'),
       };
 
       const res = await fetch('/api/anfrage/update', {
@@ -200,15 +260,15 @@ export default function AuftragsscheinModal({
         const json = await res.json();
         setSaveMessage(
           isDe
-            ? '✅ Gespeichert! Fotos und Bericht sind sofort im Chef-Panel sichtbar.'
-            : '✅ Sačuvano! Šef odmah vidi slike i izveštaj u svom panelu.'
+            ? '✅ Kompletter Auftragsschein, Material, Fotos & Unterschrift wurden für den Chef gespeichert!'
+            : '✅ Kompletan Auftragsschein, materijal, slike i potpis su sačuvani za šefa!'
         );
         if (onSaved && json.updatedAnfrage) {
           onSaved(json.updatedAnfrage);
         }
       }
     } catch (e) {
-      console.error('Greška pri čuvanju slika:', e);
+      console.error('Greška pri čuvanju formulara:', e);
     } finally {
       setSavingToServer(false);
     }
@@ -252,6 +312,7 @@ export default function AuftragsscheinModal({
     ctx.beginPath();
     ctx.moveTo(x, y);
     setIsDrawing(true);
+    setHasSignature(true);
   };
 
   const draw = (e: any) => {
@@ -276,6 +337,7 @@ export default function AuftragsscheinModal({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
   };
 
   const handleMaterialChange = (index: number, field: keyof MaterialRow, value: string) => {
@@ -302,8 +364,8 @@ export default function AuftragsscheinModal({
             </h2>
             <p className="text-xs text-gray-300">
               {isDe
-                ? 'Vorher/Nachher-Fotos aufnehmen (sofort für den Chef sichtbar) und als PDF speichern'
-                : 'Uslikajte stanje Pre i Posle (šef ih odmah vidi u svom panelu) i sačuvajte PDF'}
+                ? 'Alle Eingaben, Materialien, Fotos & Unterschrift sind im Chef-Panel einsehbar'
+                : 'Sva uneta polja, materijal, slike i potpis odmah su dostupni šefu u panelu'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -319,7 +381,7 @@ export default function AuftragsscheinModal({
                   : 'Čuvanje...'
                 : isDe
                 ? '💾 An Chef senden / Speichern'
-                : '💾 Pošalji slike i izveštaj šefu'}
+                : '💾 Pošalji šefu / Sačuvaj'}
             </button>
             <button
               type="button"
@@ -347,7 +409,7 @@ export default function AuftragsscheinModal({
           </div>
         )}
 
-        {/* Modal za direktnu kameru uživo u pretraživaču (radi i na laptopu i na telefonu!) */}
+        {/* Modal za direktnu kameru uživo u pretraživaču */}
         {activeCameraTarget && (
           <div className="bg-gray-900 text-white p-4 flex flex-col items-center print:hidden">
             <p className="text-xs font-bold uppercase tracking-wider mb-2 text-red-400">
@@ -579,7 +641,7 @@ export default function AuftragsscheinModal({
             />
           </div>
 
-          {/* === SEKCIJA ZA FOTOGRAFIJE PRE I POSLE (Sa direktnom kamerom + galerijom!) === */}
+          {/* === SEKCIJA ZA FOTOGRAFIJE PRE I POSLE === */}
           <div className="mb-6">
             <div className="inline-block border-2 border-black bg-[#f9eaea] px-4 py-1 font-semibold text-xs mb-2">
               {isDe
@@ -729,7 +791,10 @@ export default function AuftragsscheinModal({
                   onChange={() => {
                     const next = abgeschlossen === 'ja' ? null : 'ja';
                     setAbgeschlossen(next);
-                    saveFieldsToDatabase({ status: next === 'ja' ? 'ZAVRŠENO' : 'DODELJENO' });
+                    saveFieldsToDatabase({
+                      status: next === 'ja' ? 'ZAVRŠENO' : 'DODELJENO',
+                      abgeschlossenOverride: next,
+                    });
                   }}
                   className="w-4 h-4 accent-[#e60000]"
                 />
@@ -739,7 +804,11 @@ export default function AuftragsscheinModal({
                 <input
                   type="checkbox"
                   checked={abgeschlossen === 'nein'}
-                  onChange={() => setAbgeschlossen(abgeschlossen === 'nein' ? null : 'nein')}
+                  onChange={() => {
+                    const next = abgeschlossen === 'nein' ? null : 'nein';
+                    setAbgeschlossen(next);
+                    saveFieldsToDatabase({ abgeschlossenOverride: next });
+                  }}
                   className="w-4 h-4 accent-[#e60000]"
                 />
               </label>
