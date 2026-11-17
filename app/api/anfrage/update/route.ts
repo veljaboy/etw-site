@@ -1,18 +1,45 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs/promises';
+import path from 'path';
 
 const prisma = new PrismaClient();
+
+async function deleteJobUploadsFolder(posaoId: string) {
+  try {
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads', String(posaoId));
+    await fs.rm(uploadDir, { recursive: true, force: true });
+  } catch (e) {
+    // Ignorišemo ako folder ne postoji
+  }
+}
 
 export async function POST(request: Request) {
   try {
     const data = await request.json();
 
-    // Brisanje posla ako šef klikne "Obriši posao"
+    // 1. Potpuno brisanje posla (i svih njegovih slika sa diska)
     if (data.action === 'DELETE') {
+      await deleteJobUploadsFolder(data.id);
       await prisma.anfrage.delete({
         where: { id: data.id },
       });
       return NextResponse.json({ success: true, deletedId: data.id });
+    }
+
+    // 2. Brisanje samo Auftragsschein-a i svih slika tog posla (oslobadjanje memorije na serveru!)
+    if (data.action === 'CLEAR_AUFTRAGSSCHEIN') {
+      await deleteJobUploadsFolder(data.id);
+      const updatedAnfrage = await prisma.anfrage.update({
+        where: { id: data.id },
+        data: {
+          slikaPre: null,
+          slikaPosle: null,
+          izvestajRadnika: null,
+          auftragsscheinData: null,
+        },
+      });
+      return NextResponse.json({ success: true, updatedAnfrage });
     }
 
     const updateData: any = {};

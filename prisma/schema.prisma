@@ -7,12 +7,20 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// Tabela za Radnike
+// Tabela za autentifikaciju šefa (/chef)
+model ChefConfig {
+  id          String   @id @default("main")
+  lozinkaHash String
+  updatedAt   DateTime @updatedAt
+}
+
+// Tabela za Radnike (/radnik)
 model Radnik {
-  id        String    @id @default(cuid())
-  ime       String
-  boja      String    // Npr. '#3b82f6' za plavu
-  zadaci    Anfrage[] // Veza: Jedan radnik može imati više poslova
+  id          String    @id @default(cuid())
+  ime         String
+  boja        String    // Npr. '#3b82f6' za plavu
+  lozinkaHash String    @default("") // Kriptovana (SHA-256) šifra radnika
+  zadaci      Anfrage[] // Veza: Jedan radnik može imati više poslova
 }
 
 // Tabela za Poslove u kalendaru (koje šef sam unosi i raspoređuje)
@@ -31,7 +39,7 @@ model Anfrage {
   slikaPre           String?  // Base64 / Data URL fotografije PRE radova (Vorher)
   slikaPosle         String?  // Base64 / Data URL fotografije POSLE radova (Nachher)
   izvestajRadnika    String?  // Opis izvršenih radova sa terena (Durchgeführte Arbeiten)
-  auftragsscheinData String?  // JSON sa svim poljima popunjenog Auftragsschein formulara (materijal, mit, satnica, potpis...)
+  auftragsscheinData String?  // JSON sa svim poljima popunjenog Auftragsschein formulara
   createdAt          DateTime @default(now())
 
   // Veza sa radnikom

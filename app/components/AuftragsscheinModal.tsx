@@ -9,7 +9,13 @@ interface MaterialRow {
   kfz: string;
 }
 
-function compressImageFile(file: File, maxWidth = 900, quality = 0.75): Promise<string> {
+export interface FotoItem {
+  id: string;
+  url: string;
+  opis: string;
+}
+
+function compressImageFile(file: File, maxWidth = 1000, quality = 0.75): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -64,6 +70,21 @@ export default function AuftragsscheinModal({
     }
   })();
 
+  // Inicijalizacija liste fotografija (neograničen broj slika sa opisom ispod svake slike!)
+  const initialFotos: FotoItem[] = (() => {
+    if (savedData?.fotografije && Array.isArray(savedData.fotografije)) {
+      return savedData.fotografije;
+    }
+    const legacy: FotoItem[] = [];
+    if (posao.slikaPre) {
+      legacy.push({ id: 'legacy-1', url: posao.slikaPre, opis: '' });
+    }
+    if (posao.slikaPosle) {
+      legacy.push({ id: 'legacy-2', url: posao.slikaPosle, opis: '' });
+    }
+    return legacy;
+  })();
+
   const [datum, setDatum] = useState<string>(savedData?.datum || danas);
   const [vereinbarterTermin, setVereinbarterTermin] = useState<string>(
     savedData?.vereinbarterTermin ||
@@ -95,14 +116,14 @@ export default function AuftragsscheinModal({
     savedData?.abgeschlossen ?? (posao.status === 'ZAVRŠENO' ? 'ja' : null)
   );
 
-  // Slike PRE i POSLE (Vorher / Nachher)
-  const [slikaPre, setSlikaPre] = useState<string | null>(posao.slikaPre || null);
-  const [slikaPosle, setSlikaPosle] = useState<string | null>(posao.slikaPosle || null);
+  // Neograničena lista fotografija sa opisom
+  const [fotografije, setFotografije] = useState<FotoItem[]>(initialFotos);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [savingToServer, setSavingToServer] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // Ugrađena kamera uživo
-  const [activeCameraTarget, setActiveCameraTarget] = useState<'pre' | 'posle' | null>(null);
+  const [liveCameraOpen, setLiveCameraOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -120,7 +141,6 @@ export default function AuftragsscheinModal({
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
 
-    // Ako postoji sačuvan potpis iz baze, iscrtavamo ga na canvas
     if (savedData?.potpisKunde) {
       const img = new Image();
       img.onload = () => {
@@ -139,12 +159,29 @@ export default function AuftragsscheinModal({
     };
   }, []);
 
-  const startLiveCamera = async (target: 'pre' | 'posle') => {
+  const uploadCompressedImageToDisk = async (dataUrl: string): Promise<string> => {
+    try {
+      const res = await fetch('/api/upload-slika', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ posaoId: posao.id, dataUrl }),
+      });
+      const json = await res.json();
+      if (res.ok && json.url) {
+        return json.url;
+      }
+    } catch (e) {
+      console.error('Upload fallback na dataUrl:', e);
+    }
+    return dataUrl;
+  };
+
+  const startLiveCamera = async () => {
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
-      setActiveCameraTarget(target);
+      setLiveCameraOpen(true);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
         audio: false,
@@ -156,10 +193,10 @@ export default function AuftragsscheinModal({
     } catch (err) {
       alert(
         isDe
-          ? 'Kamera konnte nicht gestartet werden. Bitte erlauben Sie den Kamerazugriff im Browser oder wählen Sie ein Foto aus.'
-          : 'Kamera nije mogla da se pokrene. Dozvolite pristup kameri u pretraživaču ili izaberite sliku.'
+          ? 'Kamera konnte nicht gestartet werden. Bitte erlauben Sie den Kamerazugriff im Browser oder wählen Sie Fotos aus.'
+          : 'Kamera nije mogla da se pokrene. Dozvolite pristup kameri u pretraživaču ili izaberite slike.'
       );
-      setActiveCameraTarget(null);
+      setLiveCameraOpen(false);
     }
   };
 
@@ -168,34 +205,77 @@ export default function AuftragsscheinModal({
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    setActiveCameraTarget(null);
+    setLiveCameraOpen(false);
   };
 
   const captureFromLiveCamera = async () => {
-    if (!videoRef.current || !activeCameraTarget) return;
-    const video = videoRef.current;
-    const maxW = 900;
-    const vw = video.videoWidth || 640;
-    const vh = video.videoHeight || 480;
-    const scale = vw > maxW ? maxW / vw : 1;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(vw * scale);
-    canvas.height = Math.round(vh * scale);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+    if (!videoRef.current) return;
+    setUploadingPhotos(true);
+    try {
+      const video = videoRef.current;
+      const maxW = 1000;
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      const scale = vw > maxW ? maxW / vw : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(vw * scale);
+      canvas.height = Math.round(vh * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
 
-    const target = activeCameraTarget;
-    stopLiveCamera();
-
-    if (target === 'pre') {
-      setSlikaPre(dataUrl);
-      await saveFieldsToDatabase({ slikaPre: dataUrl });
-    } else {
-      setSlikaPosle(dataUrl);
-      await saveFieldsToDatabase({ slikaPosle: dataUrl });
+      const savedUrl = await uploadCompressedImageToDisk(dataUrl);
+      const novaSlika: FotoItem = {
+        id: `foto-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        url: savedUrl,
+        opis: '',
+      };
+      const updatedList = [...fotografije, novaSlika];
+      setFotografije(updatedList);
+      await saveFieldsToDatabase({ fotografijeOverride: updatedList });
+    } finally {
+      setUploadingPhotos(false);
     }
+  };
+
+  // Dodavanje 1 ili više slika odjednom (čak i 50 slika odjednom!)
+  const handleMultiplePhotosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingPhotos(true);
+    try {
+      const noveSlike: FotoItem[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const compressedDataUrl = await compressImageFile(file);
+        const savedUrl = await uploadCompressedImageToDisk(compressedDataUrl);
+        noveSlike.push({
+          id: `foto-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+          url: savedUrl,
+          opis: '',
+        });
+      }
+      const updatedList = [...fotografije, ...noveSlike];
+      setFotografije(updatedList);
+      await saveFieldsToDatabase({ fotografijeOverride: updatedList });
+    } catch (err) {
+      alert(isDe ? 'Fehler beim Laden der Fotos.' : 'Greška pri učitavanju slika.');
+    } finally {
+      setUploadingPhotos(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleFotoOpisChange = (id: string, noviOpis: string) => {
+    setFotografije((prev) => prev.map((f) => (f.id === id ? { ...f, opis: noviOpis } : f)));
+  };
+
+  const handleRemoveFoto = async (id: string) => {
+    const updatedList = fotografije.filter((f) => f.id !== id);
+    setFotografije(updatedList);
+    await saveFieldsToDatabase({ fotografijeOverride: updatedList });
   };
 
   const getSignatureDataUrl = (): string | null => {
@@ -208,8 +288,7 @@ export default function AuftragsscheinModal({
   };
 
   const saveFieldsToDatabase = async (overrides?: {
-    slikaPre?: string | null;
-    slikaPosle?: string | null;
+    fotografijeOverride?: FotoItem[];
     izvestajRadnika?: string;
     status?: string;
     abgeschlossenOverride?: 'ja' | 'nein' | null;
@@ -219,6 +298,8 @@ export default function AuftragsscheinModal({
     try {
       const finalAbgeschlossen =
         overrides?.abgeschlossenOverride !== undefined ? overrides.abgeschlossenOverride : abgeschlossen;
+      const finalFotografije =
+        overrides?.fotografijeOverride !== undefined ? overrides.fotografijeOverride : fotografije;
 
       const fullFormJson = JSON.stringify({
         datum,
@@ -235,14 +316,16 @@ export default function AuftragsscheinModal({
         durchgefuehrteArbeiten:
           overrides?.izvestajRadnika !== undefined ? overrides.izvestajRadnika : durchgefuehrteArbeiten,
         abgeschlossen: finalAbgeschlossen,
+        fotografije: finalFotografije,
         potpisKunde: getSignatureDataUrl(),
         updatedAt: new Date().toISOString(),
       });
 
       const payload = {
         id: posao.id,
-        slikaPre: overrides?.slikaPre !== undefined ? overrides.slikaPre : slikaPre,
-        slikaPosle: overrides?.slikaPosle !== undefined ? overrides.slikaPosle : slikaPosle,
+        // Čuvamo prvu i drugu sliku i u slikaPre/slikaPosle radi brzog pregleda u tabeli, a sve slike i opise u auftragsscheinData!
+        slikaPre: finalFotografije[0]?.url || null,
+        slikaPosle: finalFotografije[1]?.url || null,
         izvestajRadnika:
           overrides?.izvestajRadnika !== undefined ? overrides.izvestajRadnika : durchgefuehrteArbeiten,
         auftragsscheinData: fullFormJson,
@@ -260,8 +343,8 @@ export default function AuftragsscheinModal({
         const json = await res.json();
         setSaveMessage(
           isDe
-            ? '✅ Kompletter Auftragsschein, Material, Fotos & Unterschrift wurden für den Chef gespeichert!'
-            : '✅ Kompletan Auftragsschein, materijal, slike i potpis su sačuvani za šefa!'
+            ? `✅ Auftragsschein & alle ${finalFotografije.length} Fotos mit Beschreibungen wurden gespeichert!`
+            : `✅ Auftragsschein i svih ${finalFotografije.length} slika sa opisima su sačuvani za šefa!`
         );
         if (onSaved && json.updatedAnfrage) {
           onSaved(json.updatedAnfrage);
@@ -271,23 +354,6 @@ export default function AuftragsscheinModal({
       console.error('Greška pri čuvanju formulara:', e);
     } finally {
       setSavingToServer(false);
-    }
-  };
-
-  const handlePhotoUpload = async (tip: 'pre' | 'posle', e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const compressedDataUrl = await compressImageFile(file);
-      if (tip === 'pre') {
-        setSlikaPre(compressedDataUrl);
-        await saveFieldsToDatabase({ slikaPre: compressedDataUrl });
-      } else {
-        setSlikaPosle(compressedDataUrl);
-        await saveFieldsToDatabase({ slikaPosle: compressedDataUrl });
-      }
-    } catch (err) {
-      alert(isDe ? 'Fehler beim Laden des Bildes.' : 'Greška pri učitavanju slike.');
     }
   };
 
@@ -364,15 +430,15 @@ export default function AuftragsscheinModal({
             </h2>
             <p className="text-xs text-gray-300">
               {isDe
-                ? 'Alle Eingaben, Materialien, Fotos & Unterschrift sind im Chef-Panel einsehbar'
-                : 'Sva uneta polja, materijal, slike i potpis odmah su dostupni šefu u panelu'}
+                ? 'Unbegrenzt viele Fotos hinzufügen, unter jedem Foto beschreiben was fotografiert wurde & speichern'
+                : 'Dodajte neograničen broj slika, ispod svake napišite šta je uslikano i sačuvajte za šefa'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               onClick={() => saveFieldsToDatabase()}
-              disabled={savingToServer}
+              disabled={savingToServer || uploadingPhotos}
               className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2.5 rounded-xl text-sm transition shadow-sm cursor-pointer disabled:opacity-60"
             >
               {savingToServer
@@ -410,16 +476,12 @@ export default function AuftragsscheinModal({
         )}
 
         {/* Modal za direktnu kameru uživo u pretraživaču */}
-        {activeCameraTarget && (
+        {liveCameraOpen && (
           <div className="bg-gray-900 text-white p-4 flex flex-col items-center print:hidden">
             <p className="text-xs font-bold uppercase tracking-wider mb-2 text-red-400">
-              {activeCameraTarget === 'pre'
-                ? isDe
-                  ? '📸 Live-Kamera: VORHER-FOTO'
-                  : '📸 Kamera uživo: SLIKA PRE RADOVA'
-                : isDe
-                ? '📸 Live-Kamera: NACHHER-FOTO'
-                : '📸 Kamera uživo: SLIKA POSLE RADOVA'}
+              {isDe
+                ? `📸 Live-Kamera (${fotografije.length} Fotos bisher aufgenommen)`
+                : `📸 Kamera uživo (Do sada dodato slika: ${fotografije.length})`}
             </p>
             <video
               ref={videoRef}
@@ -432,22 +494,29 @@ export default function AuftragsscheinModal({
               <button
                 type="button"
                 onClick={captureFromLiveCamera}
-                className="bg-[#e60000] hover:bg-red-700 text-white font-bold px-6 py-2.5 rounded-xl text-sm cursor-pointer shadow-lg"
+                disabled={uploadingPhotos}
+                className="bg-[#e60000] hover:bg-red-700 text-white font-bold px-6 py-2.5 rounded-xl text-sm cursor-pointer shadow-lg disabled:opacity-60"
               >
-                {isDe ? '📸 Foto jetzt aufnehmen' : '📸 Uslikaj sada'}
+                {uploadingPhotos
+                  ? isDe
+                    ? 'Wird gespeichert...'
+                    : 'Čuvanje slike...'
+                  : isDe
+                  ? '📸 Foto aufnehmen (+ weiteres hinzufügen)'
+                  : '📸 Uslikaj (+ dodaj u listu)'}
               </button>
               <button
                 type="button"
                 onClick={stopLiveCamera}
                 className="bg-white/15 hover:bg-white/25 text-white px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
               >
-                {isDe ? 'Abbrechen' : 'Otkaži'}
+                {isDe ? 'Kamera schließen' : 'Zatvori kameru'}
               </button>
             </div>
           </div>
         )}
 
-        {/* === AUFTRAGSSCHEIN PAPIR (1:1 sa skeniranim obrascem + Slike Pre/Posle) === */}
+        {/* === AUFTRAGSSCHEIN PAPIR (1:1 sa skeniranim obrascem + Neograničene slike sa opisom) === */}
         <div id="auftragsschein-sheet" className="p-5 sm:p-10 text-black text-sm print:p-6">
           <div className="border-2 border-black bg-[#f9eaea] py-1.5 text-center font-bold text-lg tracking-wide mb-3">
             Auftragsschein
@@ -641,115 +710,104 @@ export default function AuftragsscheinModal({
             />
           </div>
 
-          {/* === SEKCIJA ZA FOTOGRAFIJE PRE I POSLE === */}
+          {/* === SEKCIJA ZA NEOGRANIČEN BROJ SLIKA SA OPISOM ISPOD SVAKE SLIKE === */}
           <div className="mb-6">
-            <div className="inline-block border-2 border-black bg-[#f9eaea] px-4 py-1 font-semibold text-xs mb-2">
-              {isDe
-                ? 'Fotodokumentation (Vorher / Nachher)'
-                : 'Fotodokumentacija (Vorher / Nachher — Slike Pre i Posle)'}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Boks 1: Slika PRE (Vorher) */}
-              <div className="border-2 border-dashed border-gray-300 rounded-xl p-3 bg-gray-50/60 flex flex-col justify-between print:border-solid print:border-black print:bg-white">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-xs uppercase text-gray-700">
-                    {isDe ? '1. VORHER-FOTO (Vor Arbeitsbeginn)' : '1. SLIKA PRE RADOVA (Vorher)'}
-                  </span>
-                  {slikaPre && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSlikaPre(null);
-                        saveFieldsToDatabase({ slikaPre: null });
-                      }}
-                      className="text-xs text-red-600 hover:underline font-semibold print:hidden"
-                    >
-                      {isDe ? 'Entfernen' : 'Ukloni'}
-                    </button>
-                  )}
-                </div>
-
-                {slikaPre ? (
-                  <div className="relative rounded-lg overflow-hidden border border-gray-200 bg-white">
-                    <img src={slikaPre} alt="Vorher Foto" className="w-full h-44 object-cover" />
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-40 border border-gray-200 rounded-lg bg-white p-3 text-center gap-2 print:h-28">
-                    <button
-                      type="button"
-                      onClick={() => startLiveCamera('pre')}
-                      className="w-full bg-[#e60000] hover:bg-red-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer print:hidden"
-                    >
-                      <span>📸</span>
-                      <span>{isDe ? 'Kamera direkt öffnen' : 'Otvori kameru direktno'}</span>
-                    </button>
-
-                    <label className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer print:hidden">
-                      <span>📁</span>
-                      <span>{isDe ? 'Oder Foto auswählen / Handy-Kamera' : 'Ili izaberi sliku / Kamera telefona'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={(e) => handlePhotoUpload('pre', e)}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                )}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="inline-block border-2 border-black bg-[#f9eaea] px-4 py-1 font-semibold text-xs">
+                {isDe
+                  ? `Fotodokumentation (${fotografije.length} Fotos)`
+                  : `Fotodokumentacija (${fotografije.length} slika)`}
               </div>
 
-              {/* Boks 2: Slika POSLE (Nachher) */}
-              <div className="border-2 border-dashed border-gray-300 rounded-xl p-3 bg-gray-50/60 flex flex-col justify-between print:border-solid print:border-black print:bg-white">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-xs uppercase text-gray-700">
-                    {isDe ? '2. NACHHER-FOTO (Nach Fertigstellung)' : '2. SLIKA POSLE RADOVA (Nachher)'}
+              {/* Dugmad za dodavanje neograničenog broja slika (sakrivena pri štampi) */}
+              <div className="flex flex-wrap items-center gap-2 print:hidden">
+                <button
+                  type="button"
+                  onClick={startLiveCamera}
+                  className="bg-[#e60000] hover:bg-red-700 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <span>📸</span>
+                  <span>{isDe ? 'Kamera öffnen' : 'Otvori kameru'}</span>
+                </button>
+
+                <label className="bg-[#1a202c] hover:bg-gray-800 text-white font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-xs">
+                  <span>📁+</span>
+                  <span>
+                    {uploadingPhotos
+                      ? isDe
+                        ? 'Fotos werden geladen...'
+                        : 'Učitavanje slika...'
+                      : isDe
+                      ? 'Fotos hinzufügen (auch 10–50 gleichzeitig)'
+                      : 'Dodaj slike (može i 10–50 odjednom)'}
                   </span>
-                  {slikaPosle && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSlikaPosle(null);
-                        saveFieldsToDatabase({ slikaPosle: null });
-                      }}
-                      className="text-xs text-red-600 hover:underline font-semibold print:hidden"
-                    >
-                      {isDe ? 'Entfernen' : 'Ukloni'}
-                    </button>
-                  )}
-                </div>
-
-                {slikaPosle ? (
-                  <div className="relative rounded-lg overflow-hidden border border-gray-200 bg-white">
-                    <img src={slikaPosle} alt="Nachher Foto" className="w-full h-44 object-cover" />
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-40 border border-gray-200 rounded-lg bg-white p-3 text-center gap-2 print:h-28">
-                    <button
-                      type="button"
-                      onClick={() => startLiveCamera('posle')}
-                      className="w-full bg-[#e60000] hover:bg-red-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer print:hidden"
-                    >
-                      <span>📸</span>
-                      <span>{isDe ? 'Kamera direkt öffnen' : 'Otvori kameru direktno'}</span>
-                    </button>
-
-                    <label className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer print:hidden">
-                      <span>📁</span>
-                      <span>{isDe ? 'Oder Foto auswählen / Handy-Kamera' : 'Ili izaberi sliku / Kamera telefona'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={(e) => handlePhotoUpload('posle', e)}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleMultiplePhotosUpload}
+                    className="hidden"
+                  />
+                </label>
               </div>
             </div>
+
+            {fotografije.length === 0 ? (
+              <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center text-gray-500 text-xs bg-gray-50/50 print:hidden">
+                {isDe
+                  ? 'Noch keine Fotos hinzugefügt. Klicken Sie oben auf „Fotos hinzufügen“ oder „Kamera öffnen“, um beliebig viele Fotos (inkl. Beschreibung unter jedem Foto) hinzuzufügen.'
+                  : 'Još nema dodatih slika. Kliknite gore na „Dodaj slike“ ili „Otvori kameru“ da ubacite koliko god želite slika i napišete opis ispod svake.'}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {fotografije.map((foto, index) => (
+                  <div
+                    key={foto.id}
+                    className="border-2 border-gray-300 rounded-xl p-3 bg-gray-50/60 flex flex-col justify-between print:border-black print:bg-white print:break-inside-avoid"
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-bold text-xs uppercase text-gray-800">
+                        {isDe ? `Foto #${index + 1}` : `Slika #${index + 1}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFoto(foto.id)}
+                        className="text-xs text-red-600 hover:underline font-bold print:hidden cursor-pointer"
+                      >
+                        ✕ {isDe ? 'Löschen' : 'Ukloni'}
+                      </button>
+                    </div>
+
+                    <div className="rounded-lg overflow-hidden border border-gray-200 bg-white mb-2.5">
+                      <img
+                        src={foto.url}
+                        alt={`Foto ${index + 1}`}
+                        className="w-full h-48 object-cover"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                        {isDe
+                          ? 'Beschreibung (Was wurde hier fotografiert?):'
+                          : 'Opis slike (Šta je radnik ovde uslikao?):'}
+                      </label>
+                      <input
+                        type="text"
+                        value={foto.opis}
+                        onChange={(e) => handleFotoOpisChange(foto.id, e.target.value)}
+                        placeholder={
+                          isDe
+                            ? 'z.B. Sicherungskasten im 1. OG, Kabelkanal, Zähler...'
+                            : 'npr. Razvodna tabla na 1. spratu, kablovi, brojilo...'
+                        }
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-medium outline-none focus:ring-2 focus:ring-[#e60000] print:border-none print:px-0 print:font-semibold"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 mt-4">
